@@ -19,6 +19,7 @@ def get_cached_token():
         SPOTIFY_TOKEN_URL,
         headers={"Authorization": f"Basic {b64_auth}"},
         data={"grant_type": "client_credentials"},
+        timeout=20,
     )
 
     if response.status_code != 200:
@@ -40,6 +41,7 @@ def spotify_request(endpoint, params=None):
         f"{SPOTIFY_BASE_URL}/{endpoint}",
         headers={"Authorization": f"Bearer {token}"},
         params=params,
+        timeout=20,
     )
 
     if response.status_code != 200:
@@ -49,7 +51,7 @@ def spotify_request(endpoint, params=None):
     return response.json()
 
 
-# 🎵 TRACKS
+# TRACKS
 def get_spotify_tracks(query="top songs", limit=10):
     data = spotify_request("search", {"q": query, "type": "track", "limit": limit})
     if not data:
@@ -66,7 +68,7 @@ def get_spotify_tracks(query="top songs", limit=10):
     ]
 
 
-# 🎤 ARTISTS
+# ARTISTS
 def get_artists(limit=8):
     artist_queries = [
         "Arijit Singh", "Shreya Ghoshal", "A.R. Rahman",
@@ -89,7 +91,7 @@ def get_artists(limit=8):
     return artists
 
 
-# 🎧 PLAYLISTS
+# PLAYLISTS
 def get_playlists(limit=10):
     playlist_queries = [
         "Top Hits India", "Bollywood Hits", "Today's Top Hits",
@@ -99,26 +101,53 @@ def get_playlists(limit=10):
     playlists = []
     for query in playlist_queries[:limit]:
         data = spotify_request("search", {
-            "q": query, "type": "playlist", "limit": 1, "market": "IN"
+            "q": query, "type": "playlist", "limit": 5, "market": "IN"
         })
         if not data:
             continue
+
         items = data.get("playlists", {}).get("items", [])
-        if not items or not items[0]:
+        if not items:
             continue
-        p = items[0]
+
+        playlist = next((item for item in items if item and item.get("id")), None)
+        if not playlist:
+            continue
+
         playlists.append({
-            "id": p["id"],
-            "name": p["name"],
-            "image": p["images"][0]["url"] if p.get("images") else None,
-            "description": p.get("description", ""),
+            "id": playlist["id"],
+            "name": playlist["name"],
+            "image": playlist["images"][0]["url"] if playlist.get("images") else None,
+            "description": playlist.get("description", ""),
         })
     return playlists
 
 
-# 🎵 PLAYLIST DETAIL — fetch tracks directly, no fields filter
+def _map_track_to_song(track, date_added=None):
+    if not track or track.get("type") != "track":
+        return None
+
+    return {
+        "id": track["id"],
+        "title": track["name"],
+        "artist": {
+            "name": ", ".join(a["name"] for a in track.get("artists", []))
+        },
+        "album": track.get("album", {}).get("name", ""),
+        "image": (
+            track["album"]["images"][0]["url"]
+            if track.get("album", {}).get("images")
+            else None
+        ),
+        "duration": track["duration_ms"] // 1000,
+        "explicit": track.get("explicit", False),
+        "date_added": date_added,
+        "audio_url": None,
+    }
+
+
+# PLAYLIST DETAIL
 def get_playlist_detail(playlist_id):
-    # Step 1: fetch playlist metadata
     playlist_data = spotify_request(f"playlists/{playlist_id}", {
         "market": "IN",
     })
@@ -126,7 +155,6 @@ def get_playlist_detail(playlist_id):
     if not playlist_data:
         return None
 
-    # Step 2: fetch tracks separately (handles pagination, no fields issues)
     tracks_data = spotify_request(f"playlists/{playlist_id}/tracks", {
         "market": "IN",
         "limit": 50,
@@ -135,27 +163,24 @@ def get_playlist_detail(playlist_id):
     songs = []
     if tracks_data:
         for item in tracks_data.get("items", []):
-            track = item.get("track")
-            if not track or track.get("type") != "track":
-                continue
+            mapped = _map_track_to_song(item.get("track"), item.get("added_at"))
+            if mapped:
+                songs.append(mapped)
 
-            songs.append({
-                "id": track["id"],
-                "title": track["name"],
-                "artist": {
-                    "name": ", ".join(a["name"] for a in track.get("artists", []))
-                },
-                "album": track.get("album", {}).get("name", ""),
-                "image": (
-                    track["album"]["images"][0]["url"]
-                    if track.get("album", {}).get("images")
-                    else None
-                ),
-                "duration": track["duration_ms"] // 1000,
-                "explicit": track.get("explicit", False),
-                "date_added": item.get("added_at"),
-                "audio_url": None,
-            })
+    # Some Spotify app modes can read playlist metadata but not playlist tracks.
+    # Fallback to track search by playlist name so playlist detail is still usable.
+    if not songs:
+        fallback_tracks = spotify_request("search", {
+            "q": playlist_data.get("name", ""),
+            "type": "track",
+            "limit": 10,
+            "market": "IN",
+        })
+        if fallback_tracks:
+            for track in fallback_tracks.get("tracks", {}).get("items", []):
+                mapped = _map_track_to_song(track)
+                if mapped:
+                    songs.append(mapped)
 
     return {
         "playlist": {
