@@ -126,7 +126,8 @@ def get_playlist_detail(playlist_id):
     if not playlist_data:
         return None
 
-    # Step 2: fetch tracks separately (handles pagination, no fields issues)
+    # Step 2: try fetching playlist items directly.
+    # Client-credentials tokens can return 403 for this endpoint on some playlists.
     tracks_data = spotify_request(f"playlists/{playlist_id}/tracks", {
         "market": "IN",
         "limit": 50,
@@ -156,6 +157,39 @@ def get_playlist_detail(playlist_id):
                 "date_added": item.get("added_at"),
                 "audio_url": None,
             })
+
+    # Step 3: fallback - if Spotify denies playlist items, search tracks by playlist name.
+    # This keeps PlaylistDetail populated instead of returning an empty list.
+    if not songs:
+        search_data = spotify_request("search", {
+            "q": playlist_data.get("name", ""),
+            "type": "track",
+            "limit": 10,
+            "market": "IN",
+        })
+
+        if search_data:
+            for track in search_data.get("tracks", {}).get("items", []):
+                if not track:
+                    continue
+
+                songs.append({
+                    "id": track["id"],
+                    "title": track["name"],
+                    "artist": {
+                        "name": ", ".join(a["name"] for a in track.get("artists", []))
+                    },
+                    "album": track.get("album", {}).get("name", ""),
+                    "image": (
+                        track["album"]["images"][0]["url"]
+                        if track.get("album", {}).get("images")
+                        else None
+                    ),
+                    "duration": track["duration_ms"] // 1000,
+                    "explicit": track.get("explicit", False),
+                    "date_added": None,
+                    "audio_url": None,
+                })
 
     return {
         "playlist": {

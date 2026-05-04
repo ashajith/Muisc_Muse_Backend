@@ -22,5 +22,4 @@ urlpatterns = [
     path('', home),  # root route
     path('admin/', admin.site.urls),
     path('api/', include('apps.urls')),
-    path("api/", include("apps.songs.urls")),
 ]
