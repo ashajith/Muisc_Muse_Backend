@@ -92,33 +92,37 @@ def get_artists(limit=8):
 
 
 # PLAYLISTS
+# PLAYLISTS
 def get_playlists(limit=10):
     playlist_queries = [
-        "Top Hits India", "Bollywood Hits", "Today's Top Hits",
-        "Chill Hits", "Party Hits", "Romance Hits",
-        "90s Hits", "Workout Hits", "Pop Hits", "Punjabi Hits",
+        "Bollywood Party Hits",
+        "Top Hindi Songs 2026",
+        "Punjabi Hits",
+        "Arijit Singh Best Songs",
+        "Romantic Bollywood",
+        "90s Hindi Hits",
+        "Workout Hindi Songs",
+        "Chill Bollywood",
+        "Item Songs Bollywood",
+        "Bollywood Love Songs",
     ]
+
     playlists = []
     for query in playlist_queries[:limit]:
         data = spotify_request("search", {
-            "q": query, "type": "playlist", "limit": 5, "market": "IN"
+            "q": query, "type": "track", "limit": 1, "market": "IN"
         })
         if not data:
             continue
-
-        items = data.get("playlists", {}).get("items", [])
-        if not items:
+        items = data.get("tracks", {}).get("items", [])
+        if not items or not items[0]:
             continue
-
-        playlist = next((item for item in items if item and item.get("id")), None)
-        if not playlist:
-            continue
-
+        track = items[0]
         playlists.append({
-            "id": playlist["id"],
-            "name": playlist["name"],
-            "image": playlist["images"][0]["url"] if playlist.get("images") else None,
-            "description": playlist.get("description", ""),
+            "id": query.replace(" ", "-").lower(),
+            "name": query,
+            "image": track["album"]["images"][0]["url"] if track.get("album", {}).get("images") else None,
+            "description": "",
         })
     return playlists
 
