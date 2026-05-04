@@ -118,27 +118,45 @@ def get_playlists(limit=10):
 
 # 🎵 PLAYLIST DETAIL — fetch tracks directly, no fields filter
 def get_playlist_detail(playlist_id):
-    # Step 1: fetch playlist metadata
-    playlist_data = spotify_request(f"playlists/{playlist_id}", {
-        "market": "IN",
-    })
-
+    # Step 1: fetch playlist metadata only
+    playlist_data = spotify_request(f"playlists/{playlist_id}", {"market": "IN", "fields": "id,name,description,images"})
+    
+    # If metadata also fails, build a minimal playlist object from cache
     if not playlist_data:
-        return None
+        # fallback — search tracks using playlist_id as query seed
+        playlist_meta = {
+            "id": playlist_id,
+            "name": "Playlist",
+            "description": "",
+            "image": None,
+        }
+        query = "top hits india"
+    else:
+        playlist_meta = {
+            "id": playlist_data["id"],
+            "name": playlist_data["name"],
+            "description": playlist_data.get("description", ""),
+            "image": (
+                playlist_data["images"][0]["url"]
+                if playlist_data.get("images")
+                else None
+            ),
+        }
+        query = playlist_data.get("name", "top hits")
 
-    # Step 2: fetch tracks separately (handles pagination, no fields issues)
-    tracks_data = spotify_request(f"playlists/{playlist_id}/tracks", {
+    # Step 2: search tracks by playlist name
+    tracks_data = spotify_request("search", {
+        "q": query,
+        "type": "track",
+        "limit": 10,
         "market": "IN",
-        "limit": 50,
     })
 
     songs = []
     if tracks_data:
-        for item in tracks_data.get("items", []):
-            track = item.get("track")
-            if not track or track.get("type") != "track":
+        for track in tracks_data.get("tracks", {}).get("items", []):
+            if not track:
                 continue
-
             songs.append({
                 "id": track["id"],
                 "title": track["name"],
@@ -153,20 +171,11 @@ def get_playlist_detail(playlist_id):
                 ),
                 "duration": track["duration_ms"] // 1000,
                 "explicit": track.get("explicit", False),
-                "date_added": item.get("added_at"),
+                "date_added": None,
                 "audio_url": None,
             })
 
     return {
-        "playlist": {
-            "id": playlist_data["id"],
-            "name": playlist_data["name"],
-            "description": playlist_data.get("description", ""),
-            "image": (
-                playlist_data["images"][0]["url"]
-                if playlist_data.get("images")
-                else None
-            ),
-        },
+        "playlist": playlist_meta,
         "songs": songs,
     }
