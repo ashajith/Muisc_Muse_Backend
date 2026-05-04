@@ -1,7 +1,11 @@
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from .spotify_service import get_playlist_detail
 
+@csrf_exempt
 @require_GET
 def playlist_detail_view(request, playlist_id):
     data = get_playlist_detail(playlist_id)
