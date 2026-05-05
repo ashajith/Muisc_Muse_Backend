@@ -23,6 +23,7 @@ from .services.spotify_service import (
     get_playlists,
     get_playlist_detail,
 )
+from .services.youtube_service import get_youtube_audio_url
 
 
 # ---------------- AUTH ----------------
@@ -76,7 +77,7 @@ class SongListView(APIView):
 # ---------------- PLAYLISTS LIST ----------------
 @api_view(['GET'])
 def playlists_view(request):
-    data = get_playlists()       # returns Spotify playlists with string IDs
+    data = get_playlists()
     return Response(data)
 
 
@@ -89,3 +90,20 @@ def playlist_detail(request, pk):
         return Response({"error": "Playlist not found"}, status=404)
 
     return Response(data)
+
+
+# ---------------- YOUTUBE AUDIO URL ----------------
+@api_view(['GET'])
+def youtube_audio_url(request):
+    """
+    GET /api/audio/?title=Blinding+Lights&artist=The+Weeknd
+    Returns { "audio_url": "https://..." } or { "audio_url": null }
+    """
+    title = request.GET.get("title", "").strip()
+    artist = request.GET.get("artist", "").strip()
+
+    if not title:
+        return Response({"error": "title is required"}, status=400)
+
+    url = get_youtube_audio_url(title, artist)
+    return Response({"audio_url": url})

@@ -61,6 +61,7 @@ def get_spotify_tracks(query="top songs", limit=10):
             "title": item["name"],
             "artist": item["artists"][0]["name"],
             "cover_image": item["album"]["images"][0]["url"] if item["album"]["images"] else None,
+            "audio_url": item.get("preview_url"),  # ✅ use preview_url
         }
         for item in data.get("tracks", {}).get("items", [])
     ]
@@ -116,9 +117,8 @@ def get_playlists(limit=10):
     return playlists
 
 
-# 🎵 PLAYLIST DETAIL — fetch tracks directly, no fields filter
+# 🎵 PLAYLIST DETAIL
 def get_playlist_detail(playlist_id):
-    # Step 1: fetch playlist metadata
     playlist_data = spotify_request(f"playlists/{playlist_id}", {
         "market": "IN",
     })
@@ -126,8 +126,6 @@ def get_playlist_detail(playlist_id):
     if not playlist_data:
         return None
 
-    # Step 2: try fetching playlist items directly.
-    # Client-credentials tokens can return 403 for this endpoint on some playlists.
     tracks_data = spotify_request(f"playlists/{playlist_id}/tracks", {
         "market": "IN",
         "limit": 50,
@@ -155,11 +153,11 @@ def get_playlist_detail(playlist_id):
                 "duration": track["duration_ms"] // 1000,
                 "explicit": track.get("explicit", False),
                 "date_added": item.get("added_at"),
-                "audio_url": None,
+                # ✅ KEY FIX: use preview_url instead of None
+                "audio_url": track.get("preview_url"),
             })
 
-    # Step 3: fallback - if Spotify denies playlist items, search tracks by playlist name.
-    # This keeps PlaylistDetail populated instead of returning an empty list.
+    # Fallback: search by playlist name
     if not songs:
         search_data = spotify_request("search", {
             "q": playlist_data.get("name", ""),
@@ -188,7 +186,8 @@ def get_playlist_detail(playlist_id):
                     "duration": track["duration_ms"] // 1000,
                     "explicit": track.get("explicit", False),
                     "date_added": None,
-                    "audio_url": None,
+                    # ✅ KEY FIX: use preview_url instead of None
+                    "audio_url": track.get("preview_url"),
                 })
 
     return {

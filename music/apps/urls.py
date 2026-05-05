@@ -6,6 +6,7 @@ from .views import (
     playlists_view,
     spotify_trending,
     playlist_detail,
+    youtube_audio_url,
 )
 
 urlpatterns = [
@@ -14,5 +15,6 @@ urlpatterns = [
     path("artists/", artists_view),
     path("songs/", SongListView.as_view()),
     path("playlists/", playlists_view),
-    path("playlists/<str:pk>/", playlist_detail),   # ← str, Spotify IDs are strings like "37i9dQZF1DX..."
+    path("playlists/<str:pk>/", playlist_detail),
+    path("audio/", youtube_audio_url),          # ✅ new endpoint
 ]
