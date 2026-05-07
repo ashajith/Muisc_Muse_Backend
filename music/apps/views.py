@@ -23,10 +23,17 @@ from .services.spotify_service import (
     get_playlists,
     get_playlist_detail,
 )
-from .services.youtube_service import get_youtube_audio_url
+
+from .services.youtube_service import (
+    get_youtube_trending,
+    search_youtube_music,
+    get_youtube_artists,
+    get_youtube_playlists,
+    get_youtube_playlist_detail,
+)
 
 
-# ---------------- AUTH ----------------
+# ── AUTH ───────────────────────────────────────────────────────────────────────
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -43,7 +50,7 @@ class LoginView(APIView):
         return Response({"access": str(refresh.access_token)})
 
 
-# ---------------- TRENDING ----------------
+# ── TRENDING (DB) ──────────────────────────────────────────────────────────────
 @api_view(['GET'])
 def trending_songs(request):
     period = request.GET.get("period", "week")
@@ -53,20 +60,20 @@ def trending_songs(request):
     return Response(serializer.data)
 
 
-# ---------------- SPOTIFY TRENDING ----------------
+# ── SPOTIFY: TRENDING ──────────────────────────────────────────────────────────
 @api_view(['GET'])
 def spotify_trending(request):
     songs = get_spotify_tracks(query="top hits", limit=5)
     return Response(songs)
 
 
-# ---------------- ARTISTS ----------------
+# ── ARTISTS (Spotify) ──────────────────────────────────────────────────────────
 @api_view(['GET'])
 def artists_view(request):
     return Response(get_artists())
 
 
-# ---------------- SONGS ----------------
+# ── SONGS (DB) ────────────────────────────────────────────────────────────────
 class SongListView(APIView):
     def get(self, request):
         songs = Song.objects.select_related("artist").all()
@@ -74,36 +81,80 @@ class SongListView(APIView):
         return Response(serializer.data)
 
 
-# ---------------- PLAYLISTS LIST ----------------
+# ── PLAYLISTS LIST (Spotify) ───────────────────────────────────────────────────
 @api_view(['GET'])
 def playlists_view(request):
     data = get_playlists()
     return Response(data)
 
 
-# ---------------- PLAYLIST DETAIL (Spotify) ----------------
+# ── PLAYLIST DETAIL (Spotify) ─────────────────────────────────────────────────
 @api_view(['GET'])
 def playlist_detail(request, pk):
     data = get_playlist_detail(pk)
-
     if not data:
         return Response({"error": "Playlist not found"}, status=404)
-
     return Response(data)
 
 
-# ---------------- YOUTUBE AUDIO URL ----------------
+# ══ YOUTUBE ENDPOINTS ═════════════════════════════════════════════════════════
+
+# ── YOUTUBE: TRENDING ─────────────────────────────────────────────────────────
 @api_view(['GET'])
-def youtube_audio_url(request):
+def youtube_trending(request):
     """
-    GET /api/audio/?title=Blinding+Lights&artist=The+Weeknd
-    Returns { "audio_url": "https://..." } or { "audio_url": null }
+    GET /api/youtube/trending/?region=IN&limit=10
+    Returns trending music videos from YouTube.
     """
-    title = request.GET.get("title", "").strip()
-    artist = request.GET.get("artist", "").strip()
+    region = request.GET.get("region", "IN")
+    limit = int(request.GET.get("limit", 10))
+    videos = get_youtube_trending(region_code=region, limit=limit)
+    return Response(videos)
 
-    if not title:
-        return Response({"error": "title is required"}, status=400)
 
-    url = get_youtube_audio_url(title, artist)
-    return Response({"audio_url": url})
+# ── YOUTUBE: SEARCH ───────────────────────────────────────────────────────────
+@api_view(['GET'])
+def youtube_search(request):
+    """
+    GET /api/youtube/search/?q=arijit+singh&limit=10
+    Searches YouTube for music videos.
+    """
+    query = request.GET.get("q", "top music")
+    limit = int(request.GET.get("limit", 10))
+    if not query.strip():
+        return Response({"error": "Query parameter 'q' is required."}, status=400)
+    results = search_youtube_music(query=query, limit=limit)
+    return Response(results)
+
+
+# ── YOUTUBE: ARTISTS ─────────────────────────────────────────────────────────
+@api_view(['GET'])
+def youtube_artists(request):
+    """
+    GET /api/youtube/artists/
+    Returns popular music artist channels from YouTube.
+    """
+    return Response(get_youtube_artists())
+
+
+# ── YOUTUBE: PLAYLISTS LIST ───────────────────────────────────────────────────
+@api_view(['GET'])
+def youtube_playlists(request):
+    """
+    GET /api/youtube/playlists/
+    Returns curated music playlists from YouTube.
+    """
+    return Response(get_youtube_playlists())
+
+
+# ── YOUTUBE: PLAYLIST DETAIL ─────────────────────────────────────────────────
+@api_view(['GET'])
+def youtube_playlist_detail(request, playlist_id):
+    """
+    GET /api/youtube/playlists/<playlist_id>/
+    Returns metadata + video list for a YouTube playlist.
+    """
+    data = get_youtube_playlist_detail(playlist_id)
+    if not data:
+        return Response({"error": "YouTube playlist not found."}, status=404)
+    return Response(data)

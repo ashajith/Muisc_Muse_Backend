@@ -1,81 +1,285 @@
-import yt_dlp
+import requests
+from django.conf import settings
 from django.core.cache import cache
 
+YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3"
 
-def get_youtube_audio_url(title: str, artist: str) -> str | None:
-    query = f"{title} {artist} audio"
-    cache_key = f"yt_audio_{title}_{artist}".replace(" ", "_")[:200]
 
+def youtube_request(endpoint, params):
+    """Base helper — injects API key and caches nothing (caller handles caching)."""
+    api_key = settings.YOUTUBE_API_KEY
+    if not api_key:
+        print("YOUTUBE ERROR: YOUTUBE_API_KEY is not set in settings.")
+        return None
+
+    response = requests.get(
+        f"{YOUTUBE_BASE_URL}/{endpoint}",
+        params={**params, "key": api_key},
+        timeout=20,
+    )
+
+    if response.status_code != 200:
+        print("YOUTUBE ERROR:", response.status_code, response.text)
+        return None
+
+    return response.json()
+
+
+# ── TRENDING MUSIC VIDEOS ──────────────────────────────────────────────────────
+def get_youtube_trending(region_code="IN", limit=10):
+    """
+    Returns trending music videos for the given region.
+    Uses YouTube's mostPopular chart filtered to the Music category (id=10).
+    Results are cached for 30 minutes.
+    """
+    cache_key = f"yt_trending_{region_code}_{limit}"
     cached = cache.get(cache_key)
     if cached:
-        print(f"[YouTube] Cache hit for: {query}")
         return cached
 
-    ydl_opts = {
-        # itag=18 is mp4 audio+video — browser can play it fine
-        # Use a broad format selector so it works without ffmpeg or JS runtime
-        "format": "18/bestaudio/best",
-        "quiet": False,
-        "no_warnings": False,
-        "noplaylist": True,
-        "nocheckcertificate": True,
-        "noprogress": True,
-        # Pretend to be Android VR client — avoids JS requirement
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android_vr", "android", "web"],
-            }
-        },
+    data = youtube_request("videos", {
+        "part": "snippet,contentDetails,statistics",
+        "chart": "mostPopular",
+        "videoCategoryId": "10",   # Music category
+        "regionCode": region_code,
+        "maxResults": limit,
+    })
+
+    if not data:
+        return []
+
+    results = [
+        {
+            "id": item["id"],
+            "title": item["snippet"]["title"],
+            "channel": item["snippet"]["channelTitle"],
+            "cover_image": (
+                item["snippet"]["thumbnails"].get("high", {}).get("url")
+                or item["snippet"]["thumbnails"].get("default", {}).get("url")
+            ),
+            "published_at": item["snippet"].get("publishedAt"),
+            "view_count": item.get("statistics", {}).get("viewCount"),
+            "duration": item.get("contentDetails", {}).get("duration"),  # ISO 8601
+            "youtube_url": f"https://www.youtube.com/watch?v={item['id']}",
+        }
+        for item in data.get("items", [])
+    ]
+
+    cache.set(cache_key, results, timeout=1800)   # 30 min
+    return results
+
+
+# ── SEARCH ─────────────────────────────────────────────────────────────────────
+def search_youtube_music(query, limit=10):
+    """
+    Searches YouTube for music videos matching `query`.
+    Results are cached for 15 minutes per (query, limit) pair.
+    """
+    cache_key = f"yt_search_{query}_{limit}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    data = youtube_request("search", {
+        "part": "snippet",
+        "q": query,
+        "type": "video",
+        "videoCategoryId": "10",
+        "maxResults": limit,
+    })
+
+    if not data:
+        return []
+
+    results = [
+        {
+            "id": item["id"]["videoId"],
+            "title": item["snippet"]["title"],
+            "channel": item["snippet"]["channelTitle"],
+            "cover_image": (
+                item["snippet"]["thumbnails"].get("high", {}).get("url")
+                or item["snippet"]["thumbnails"].get("default", {}).get("url")
+            ),
+            "published_at": item["snippet"].get("publishedAt"),
+            "youtube_url": f"https://www.youtube.com/watch?v={item['id']['videoId']}",
+        }
+        for item in data.get("items", [])
+    ]
+
+    cache.set(cache_key, results, timeout=900)   # 15 min
+    return results
+
+
+# ── ARTISTS (YouTube Channels) ─────────────────────────────────────────────────
+def get_youtube_artists(limit=8):
+    """
+    Searches for popular music artist channels on YouTube.
+    Mirrors get_artists() in spotify_service.py.
+    """
+    artist_queries = [
+        "Arijit Singh", "Shreya Ghoshal", "A.R. Rahman",
+        "Taylor Swift", "Bruno Mars", "The Weeknd",
+        "Udit Narayan", "Lata Mangeshkar",
+    ]
+
+    artists = []
+    for query in artist_queries[:limit]:
+        cache_key = f"yt_artist_{query}"
+        cached = cache.get(cache_key)
+        if cached:
+            artists.append(cached)
+            continue
+
+        data = youtube_request("search", {
+            "part": "snippet",
+            "q": query,
+            "type": "channel",
+            "maxResults": 1,
+        })
+
+        if not data:
+            continue
+
+        items = data.get("items", [])
+        if not items:
+            continue
+
+        channel = items[0]["snippet"]
+        artist = {
+            "name": channel["channelTitle"],
+            "image": (
+                channel["thumbnails"].get("high", {}).get("url")
+                or channel["thumbnails"].get("default", {}).get("url")
+            ),
+            "channel_id": items[0]["id"]["channelId"],
+        }
+        cache.set(cache_key, artist, timeout=86400)   # 24 hours
+        artists.append(artist)
+
+    return artists
+
+
+# ── PLAYLISTS (YouTube Playlists) ──────────────────────────────────────────────
+def get_youtube_playlists(limit=10):
+    """
+    Searches for popular music playlists on YouTube.
+    Mirrors get_playlists() in spotify_service.py.
+    """
+    playlist_queries = [
+        "Bollywood Party Hits",
+        "Top Hindi Songs 2026",
+        "Punjabi Hits",
+        "Arijit Singh Best Songs",
+        "Romantic Bollywood",
+        "90s Hindi Hits",
+        "Workout Hindi Songs",
+        "Chill Bollywood",
+        "Item Songs Bollywood",
+        "Bollywood Love Songs",
+    ]
+
+    playlists = []
+    for query in playlist_queries[:limit]:
+        cache_key = f"yt_playlist_{query}"
+        cached = cache.get(cache_key)
+        if cached:
+            playlists.append(cached)
+            continue
+
+        data = youtube_request("search", {
+            "part": "snippet",
+            "q": query,
+            "type": "playlist",
+            "maxResults": 1,
+        })
+
+        if not data:
+            continue
+
+        items = data.get("items", [])
+        if not items:
+            continue
+
+        p = items[0]
+        playlist = {
+            "id": p["id"]["playlistId"],
+            "name": p["snippet"]["title"],
+            "image": (
+                p["snippet"]["thumbnails"].get("high", {}).get("url")
+                or p["snippet"]["thumbnails"].get("default", {}).get("url")
+            ),
+            "description": p["snippet"].get("description", ""),
+            "channel": p["snippet"]["channelTitle"],
+        }
+        cache.set(cache_key, playlist, timeout=3600)   # 1 hour
+        playlists.append(playlist)
+
+    return playlists
+
+
+# ── PLAYLIST DETAIL ────────────────────────────────────────────────────────────
+def get_youtube_playlist_detail(playlist_id, limit=50):
+    """
+    Returns metadata + video list for a YouTube playlist.
+    Mirrors get_playlist_detail() in spotify_service.py.
+    """
+    cache_key = f"yt_playlist_detail_{playlist_id}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    # Step 1 — Playlist metadata
+    meta_data = youtube_request("playlists", {
+        "part": "snippet",
+        "id": playlist_id,
+    })
+
+    if not meta_data or not meta_data.get("items"):
+        return None
+
+    meta = meta_data["items"][0]["snippet"]
+    playlist_info = {
+        "id": playlist_id,
+        "name": meta["title"],
+        "description": meta.get("description", ""),
+        "image": (
+            meta["thumbnails"].get("high", {}).get("url")
+            or meta["thumbnails"].get("default", {}).get("url")
+        ),
+        "channel": meta["channelTitle"],
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"[YouTube] Searching: {query}")
-            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+    # Step 2 — Playlist items
+    items_data = youtube_request("playlistItems", {
+        "part": "snippet,contentDetails",
+        "playlistId": playlist_id,
+        "maxResults": limit,
+    })
 
-            if not info:
-                print("[YouTube] No info returned")
-                return None
+    songs = []
+    if items_data:
+        for item in items_data.get("items", []):
+            snippet = item.get("snippet", {})
+            video_id = snippet.get("resourceId", {}).get("videoId")
+            if not video_id:
+                continue
+            songs.append({
+                "id": video_id,
+                "title": snippet.get("title", ""),
+                "artist": {"name": snippet.get("videoOwnerChannelTitle", "")},
+                "album": playlist_info["name"],
+                "image": (
+                    snippet["thumbnails"].get("high", {}).get("url")
+                    or snippet["thumbnails"].get("default", {}).get("url")
+                    if snippet.get("thumbnails") else None
+                ),
+                "duration": None,   # Requires an extra videos.list call; omitted for quota
+                "explicit": False,
+                "date_added": snippet.get("publishedAt"),
+                "youtube_url": f"https://www.youtube.com/watch?v={video_id}",
+                "audio_url": None,
+            })
 
-            entries = info.get("entries")
-            if not entries:
-                print("[YouTube] No entries in result")
-                return None
-
-            entry = entries[0]
-            print(f"[YouTube] Found: {entry.get('title')}")
-
-            formats = entry.get("formats") or []
-            audio_url = None
-
-            # Try audio-only first
-            for f in reversed(formats):
-                if f.get("acodec") != "none" and f.get("vcodec") == "none":
-                    audio_url = f.get("url")
-                    print(f"[YouTube] Audio-only format found: {f.get('format_id')}")
-                    break
-
-            # Fallback: itag 18 (mp4, browser-compatible)
-            if not audio_url:
-                for f in formats:
-                    if f.get("format_id") == "18":
-                        audio_url = f.get("url")
-                        print("[YouTube] Using itag 18 (mp4 fallback)")
-                        break
-
-            # Last resort: top-level url
-            if not audio_url:
-                audio_url = entry.get("url")
-                print("[YouTube] Using top-level url as last resort")
-
-            if audio_url:
-                print(f"[YouTube] URL obtained, caching...")
-                cache.set(cache_key, audio_url, timeout=600)
-            else:
-                print("[YouTube] No URL found in any format")
-
-            return audio_url
-
-    except Exception as e:
-        print(f"[YouTube] ERROR for '{query}': {type(e).__name__}: {e}")
-        return None
+    result = {"playlist": playlist_info, "songs": songs}
+    cache.set(cache_key, result, timeout=1800)
+    return result
