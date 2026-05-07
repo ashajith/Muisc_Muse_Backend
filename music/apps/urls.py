@@ -17,25 +17,29 @@ from .views import (
     youtube_playlists,
     youtube_playlist_detail,
 )
+from .audio_view import audio_lookup
 
 urlpatterns = [
-    # ── Auth ────────────────────────────────────────────────────────────────
+    # ── Auth ──────────────────────────────────────────────────
     path("login/", LoginView.as_view()),
 
-    # ── DB / general ────────────────────────────────────────────────────────
+    # ── DB / general ──────────────────────────────────────────
     path("songs/", SongListView.as_view()),
     path("trending/", trending_songs),
 
-    # ── Spotify ─────────────────────────────────────────────────────────────
+    # ── Audio lookup (JioSaavn) ────────────────────────────────
+    path("audio/", audio_lookup),
+
+    # ── Spotify ───────────────────────────────────────────────
     path("spotify/trending/", spotify_trending),
     path("artists/", artists_view),
     path("playlists/", playlists_view),
     path("playlists/<str:pk>/", playlist_detail),
 
-    # ── YouTube ─────────────────────────────────────────────────────────────
-    path("youtube/trending/", youtube_trending),            # GET ?region=IN&limit=10
-    path("youtube/search/", youtube_search),                # GET ?q=<query>&limit=10
-    path("youtube/artists/", youtube_artists),              # GET
-    path("youtube/playlists/", youtube_playlists),          # GET
-    path("youtube/playlists/<str:playlist_id>/", youtube_playlist_detail),  # GET
+    # ── YouTube ───────────────────────────────────────────────
+    path("youtube/trending/", youtube_trending),
+    path("youtube/search/", youtube_search),
+    path("youtube/artists/", youtube_artists),
+    path("youtube/playlists/", youtube_playlists),
+    path("youtube/playlists/<str:playlist_id>/", youtube_playlist_detail),
 ]

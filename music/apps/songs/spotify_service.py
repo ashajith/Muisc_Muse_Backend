@@ -146,7 +146,7 @@ def _map_track_to_song(track, date_added=None):
         "duration": track["duration_ms"] // 1000,
         "explicit": track.get("explicit", False),
         "date_added": date_added,
-        "audio_url": None,
+        "audio_url": track.get("preview_url"),
     }
 
 
@@ -183,7 +183,7 @@ def get_playlist_detail(playlist_id):
                 "duration": track["duration_ms"] // 1000,
                 "explicit": track.get("explicit", False),
                 "date_added": None,
-                "audio_url": None,
+                "audio_url": track.get("preview_url"),
             })
 
     return {
